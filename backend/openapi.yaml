@@ -1,0 +1,651 @@
+openapi: 3.0.3
+info:
+  title: Construction Ledger API
+  description: >
+    REST API for the Construction Ledger app. Projects come in three kinds —
+    'site' (construction sites, credit/debit), 'account' (Srishti Construction /
+    Sri Srishti Construction, withdrawal-only, reflects credits tagged to them
+    from site payments), and 'loan' (credit = disbursement, debit = repayment).
+  version: 3.0.0
+
+servers:
+  - url: http://localhost:4000
+    description: Local Docker dev
+  # - url: https://your-backend-url.example.com
+  #   description: Production
+
+tags:
+  - name: Auth
+  - name: Projects
+    description: Construction sites, plus the two fixed accounts and the loan project.
+  - name: Transactions
+  - name: Export
+
+paths:
+  /health:
+    get:
+      tags: [Health]
+      summary: Health check
+      security: []
+      responses:
+        '200':
+          description: API is up
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean, example: true }
+                  status: { type: string, example: ok }
+
+  /db-health:
+    get:
+      tags: [Health]
+      summary: Database health check
+      security: []
+      responses:
+        '200':
+          description: Database is reachable
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean, example: true }
+                  status: { type: string, example: ok }
+
+  /api/auth/login:
+    post:
+      tags: [Auth]
+      summary: Log in and receive a JWT
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, password]
+              properties:
+                username: { type: string, example: admin }
+                password: { type: string, format: password, example: changeme123 }
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean, example: true }
+                  token: { type: string, description: JWT, valid 30 days }
+                  user:
+                    type: object
+                    properties:
+                      user_id: { type: string, format: uuid }
+                      username: { type: string }
+                      name: { type: string }
+        '401':
+          description: Invalid credentials
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+
+  /api/auth/register:
+    post:
+      tags: [Auth]
+      summary: Register a new user
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, password, name]
+              properties:
+                username: { type: string, example: admin }
+                password: { type: string, format: password, example: changeme123 }
+                name: { type: string, example: Ishwar Singh }
+      responses:
+        '201':
+          description: User created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean, example: true }
+                  user_id: { type: string, format: uuid }
+                  data:
+                    type: object
+                    properties:
+                      username: { type: string }
+                      name: { type: string }
+        '400':
+          description: Missing required fields or username already exists
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+
+  /api/projects:
+    get:
+      tags: [Projects]
+      summary: List all projects (sites + the 2 accounts + the loan project)
+      description: >
+        Each project now includes its own computed total_credit, total_debit,
+        total_withdrawal, and balance (balance formula depends on kind — see
+        the Project schema).
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: List of projects
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean, example: true }
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/Project' }
+    post:
+      tags: [Projects]
+      summary: Create a new site
+      description: >
+        Always creates kind='site'. NOTE — current implementation accepts an
+        optional project_code in the body; if omitted, this will fail the
+        database's NOT NULL constraint rather than auto-generating one.
+        Confirm whether client-supplied codes are actually intended before
+        relying on this.
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [project_name]
+              properties:
+                project_name: { type: string, example: Ganga Niketan Site }
+                project_code: { type: string, example: GANG-482910, description: "Optional. See description above — currently required in practice." }
+                start_date: { type: string, format: date }
+                status: { type: string, example: active }
+      responses:
+        '201':
+          description: Site created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean, example: true }
+                  project_id: { type: string, format: uuid }
+                  data: { $ref: '#/components/schemas/Project' }
+        '400':
+          description: Missing project_name (or missing project_code — see note above)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+
+  /api/projects/company-summary:
+    get:
+      tags: [Projects]
+      summary: Company-wide operational position
+      description: >
+        site credits − site debits − all account withdrawals − total loan
+        repaid. Deliberately not the same as summing every project's own
+        balance — this is "where do we actually stand after partners took
+        their share and loan repayments are accounted for."
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Company summary
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean, example: true }
+                  data:
+                    type: object
+                    properties:
+                      site_credits: { type: number, example: 17496641 }
+                      site_debits: { type: number, example: 16047709 }
+                      total_withdrawals: { type: number, example: 1697428 }
+                      total_loan_repaid: { type: number, example: 72500 }
+                      balance: { type: number, example: -321000 }
+
+  /api/projects/{id}:
+    get:
+      tags: [Projects]
+      summary: Get a single project by ID
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+      responses:
+        '200':
+          description: Project found
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean, example: true }
+                  data: { $ref: '#/components/schemas/Project' }
+        '404':
+          description: Project not found
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+    patch:
+      tags: [Projects]
+      summary: Update a project's name, start date, or status
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                project_name: { type: string }
+                start_date: { type: string, format: date }
+                status: { type: string }
+      responses:
+        '200':
+          description: Updated project
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean, example: true }
+                  data: { $ref: '#/components/schemas/Project' }
+        '404':
+          description: Project not found
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+    delete:
+      tags: [Projects]
+      summary: Delete a site (cascades to its transactions)
+      description: Blocked with a 400 for kind='account' or kind='loan' — the 2 accounts and the loan project are structural and fixed.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+      responses:
+        '200':
+          description: Deleted
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SuccessResponse' }
+        '400':
+          description: Attempted to delete a non-site project
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '404':
+          description: Project not found
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+
+  /api/projects/{id}/summary:
+    get:
+      tags: [Projects]
+      summary: Get totals for a project — shape depends on kind
+      description: >
+        kind='site': {total_credit, total_debit, balance = credit − debit}.
+        kind='account': {total_credit (reflected from sites), total_withdrawal,
+        balance = credit − withdrawal}. kind='loan': {total_credit (disbursed),
+        total_debit (repaid), balance = total_debit — repaid-so-far, NOT net}.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+      responses:
+        '200':
+          description: Project summary (shape varies by kind, see description)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean, example: true }
+                  data:
+                    type: object
+                    properties:
+                      project_id: { type: string, format: uuid }
+                      kind: { type: string, enum: [site, account, loan] }
+                      total_credit: { type: number }
+                      total_debit: { type: number, description: "Present for kind=site or kind=loan" }
+                      total_withdrawal: { type: number, description: "Present for kind=account only" }
+                      balance: { type: number, description: "Formula depends on kind — see description above" }
+        '404':
+          description: Project not found
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+
+  /api/transactions:
+    get:
+      tags: [Transactions]
+      summary: List transactions, optionally filtered by project
+      description: >
+        For kind='account' projects, this returns a UNION of direct withdrawals
+        plus credit entries reflected from sites via received_into_project_id —
+        running_balance for accounts is credit-minus-withdrawal, computed
+        server-side, not the raw window-function value.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: project_id
+          in: query
+          required: false
+          schema: { type: string, format: uuid }
+          description: Filter to one project. Omit to list across everything.
+      responses:
+        '200':
+          description: List of transactions with running_balance
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean, example: true }
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/Transaction' }
+    post:
+      tags: [Transactions]
+      summary: Create a transaction
+      description: >
+        credit always forces category="Client Payment" server-side regardless
+        of what's sent. debit/withdrawal must use a category from
+        GET /api/transactions/meta/categories, with subcategory required or
+        forbidden depending on that category's own subcategory list.
+        received_into_project_id is required when type=credit on a kind=site
+        project, and must reference a kind=account project.
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [project_id, type, amount]
+              properties:
+                project_id: { type: string, format: uuid }
+                date: { type: string, format: date-time, description: Defaults to now if omitted }
+                type: { type: string, enum: [credit, debit, withdrawal] }
+                category: { type: string, example: "Construction Material", description: Ignored/overridden when type=credit }
+                subcategory: { type: string, example: Cement, nullable: true }
+                detail: { type: string, example: "Rajesh Contractor" }
+                amount: { type: number, example: 9920 }
+                entered_by: { type: string, example: ishwar }
+                received_into_project_id: { type: string, format: uuid, description: "Required when type=credit on a site project" }
+      responses:
+        '201':
+          description: Transaction created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean, example: true }
+                  txn_id: { type: string, format: uuid }
+                  data: { $ref: '#/components/schemas/Transaction' }
+        '400':
+          description: Missing/invalid fields, invalid category+subcategory combo, or type not valid for this project's kind
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+
+  /api/transactions/{id}:
+    patch:
+      tags: [Transactions]
+      summary: Update a transaction
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/TxnId'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                date: { type: string, format: date-time }
+                type: { type: string, enum: [credit, debit, withdrawal] }
+                category: { type: string }
+                subcategory: { type: string, nullable: true }
+                detail: { type: string }
+                amount: { type: number }
+                received_into_project_id: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Updated transaction
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean, example: true }
+                  data: { $ref: '#/components/schemas/Transaction' }
+        '404':
+          description: Transaction not found
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+    delete:
+      tags: [Transactions]
+      summary: Delete a transaction
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/TxnId'
+      responses:
+        '200':
+          description: Deleted
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SuccessResponse' }
+        '404':
+          description: Transaction not found
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+
+  /api/transactions/meta/categories:
+    get:
+      tags: [Transactions]
+      summary: Get the full category → subcategory taxonomy
+      description: Returns the nested EXPENSE_CATEGORIES structure, not a flat list. Credit entries don't use this — they're always fixed to "Client Payment".
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Category taxonomy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean, example: true }
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        category: { type: string, example: Plumbing }
+                        subcategories:
+                          type: array
+                          items: { type: string }
+                          example: ['Labour', 'Material', 'Sanitary & Accessories']
+
+  /api/transactions/{id}/period-summary:
+    get:
+      tags: [Transactions]
+      summary: "⚠ Currently mounted under /api/transactions — see note"
+      description: >
+        NOTE: this route's own code comment says "GET /api/projects/:id/period-summary",
+        but it's registered inside the transactions router, so the real,
+        currently-working path is /api/transactions/:id/period-summary
+        (documented here). Move it into projects.js to match the intended
+        path and the rest of the project-summary endpoints. For kind=account:
+        {total_credit (reflected, in range), total_withdrawal (in range),
+        leftover = credit − withdrawal}. For other kinds: plain credit-debit
+        for the range.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/ProjectId'
+        - name: from
+          in: query
+          required: true
+          schema: { type: string, format: date }
+        - name: to
+          in: query
+          required: true
+          schema: { type: string, format: date }
+      responses:
+        '200':
+          description: Period summary
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean, example: true }
+                  data:
+                    type: object
+                    properties:
+                      project_id: { type: string, format: uuid }
+                      kind: { type: string }
+                      from: { type: string, format: date }
+                      to: { type: string, format: date }
+                      total_credit: { type: number }
+                      total_debit: { type: number }
+                      total_withdrawal: { type: number }
+                      leftover: { type: number }
+        '400':
+          description: Missing from/to query params
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '404':
+          description: Project not found
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+
+  /api/export/xlsx/generate:
+    post:
+      tags: [Export]
+      summary: Generate or incrementally update the downloadable Excel export
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                rebuild:
+                  type: boolean
+                  default: false
+      responses:
+        '200':
+          description: Export generated or updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean, example: true }
+                  mode: { type: string, enum: [incremental, full-rebuild], example: incremental }
+                  rowsAppended: { type: integer, example: 2 }
+
+  /api/export/xlsx/download:
+    get:
+      tags: [Export]
+      summary: Download the generated Excel file
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: The .xlsx file
+          content:
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema: { type: string, format: binary }
+        '401':
+          description: Missing, invalid, or expired token
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '404':
+          description: Export file doesn't exist yet
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Obtain via POST /api/auth/login.
+
+  parameters:
+    ProjectId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    TxnId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+
+  schemas:
+    Project:
+      type: object
+      properties:
+        project_id: { type: string, format: uuid }
+        project_code: { type: string, example: GANG-482910 }
+        project_name: { type: string, example: Ganga Niketan Site }
+        kind: { type: string, enum: [site, account, loan], example: site }
+        start_date: { type: string, format: date }
+        status: { type: string, example: active }
+        created_at: { type: string, format: date-time }
+        total_credit: { type: number, description: Now included directly on GET /api/projects list items }
+        total_debit: { type: number }
+        total_withdrawal: { type: number }
+        balance: { type: number, description: "Formula depends on kind — see /api/projects/{id}/summary description" }
+
+    Transaction:
+      type: object
+      properties:
+        txn_id: { type: string, format: uuid }
+        project_id: { type: string, format: uuid }
+        date: { type: string, format: date-time }
+        type: { type: string, enum: [credit, debit, withdrawal] }
+        category: { type: string, example: "Construction Material" }
+        subcategory: { type: string, example: Cement, nullable: true }
+        detail: { type: string, example: "Rajesh Contractor" }
+        amount: { type: number, example: 9920 }
+        entered_by: { type: string, example: ishwar }
+        received_into_project_id: { type: string, format: uuid, nullable: true, description: "Set only on credit entries from a site — which account received the payment" }
+        created_at: { type: string, format: date-time }
+        running_balance: { type: number, example: 71600 }
+
+    SuccessResponse:
+      type: object
+      properties:
+        success: { type: boolean, example: true }
+
+    ErrorResponse:
+      type: object
+      properties:
+        success: { type: boolean, example: false }
+        error: { type: string, example: "Descriptive error message" }
+
+security:
+  - bearerAuth: []

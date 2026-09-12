@@ -1,0 +1,34 @@
+{
+  "expo": {
+    "name": "Srishti Construction And Engineering",
+    "slug": "srishti-construction-and-engineering",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "image": "./assets/splash-logo.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#16203C"
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.yourcompany.srishtiConstructionAndEngineering"
+    },
+    "android": {
+      "package": "com.yourcompany.srishtiConstructionAndEngineering",
+      "adaptiveIcon": {
+        "backgroundColor": "#16203C"
+      },
+      "softwareKeyboardLayoutMode": "resize"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "4ce5f7dd-948a-4195-ab5d-461ef6335b21"
+      }
+    }
+  }
+}
