@@ -70,14 +70,7 @@ router.get(
 
     if (project.kind === 'account') {
       const result = await pool.query(
-        `select txn_id, project_id, date, type, category, subcategory, detail, amount, entered_by, created_at
-         from transactions
-         where project_id = $1 and type = 'withdrawal'
-         union all
-         select txn_id, project_id, date, type, category, subcategory, detail, amount, entered_by, created_at
-         from transactions
-         where received_into_project_id = $1 and type = 'credit'
-         order by date asc, created_at asc`,
+        `select * from transactions t LEFT JOIN projects p on p.project_id= t.project_id where t.account_id=$1 order by t.date asc, t.created_at asc`,
         [project_id]
       );
 
@@ -85,6 +78,7 @@ router.get(
       const rows = result.rows.map((txn) => {
         if (txn.type === 'credit') balance += Number(txn.amount);
         if (txn.type === 'withdrawal') balance -= Number(txn.amount);
+        if (txn.type === 'debit') balance -= Number(txn.amount);
         return { ...txn, running_balance: balance };
       });
       return res.json({ success: true, data: rows });
