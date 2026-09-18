@@ -203,6 +203,7 @@ const isFiltered =
   { value: 'debit', label: 'Debit' },
   ] : [{ value: FILTER_ALL, label: 'All' },
   { value: 'credit', label: 'Credit' },
+  {value: 'debit', label: 'Debit' },
   { value: 'withdrawal', label: 'Withdrawal' }];
   return (
     <View style={styles.screen}>
@@ -275,7 +276,7 @@ const isFiltered =
             </>
           )}
 
-          {enteredByPresent.length > 0 && (
+          { !isAccountProject && enteredByPresent.length > 0 && (
             <>
               <Text style={styles.filterGroupLabel}>ENTERED BY</Text>
               <View style={styles.chipRow}>
@@ -319,9 +320,10 @@ const isFiltered =
           renderItem={({ item }) => (
             <TransactionRow
               txn={item}
-              reflectedFrom={item.project_id !== project.project_id ? projectNameById[item.project_id] : null}
+              isAccount={isAccountProject}
               onPress={() => openEdit(item)}
               onLongPress={() => handleDelete(item)}
+
             />
           )}
         />

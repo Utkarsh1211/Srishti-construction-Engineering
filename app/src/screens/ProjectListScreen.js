@@ -223,7 +223,7 @@ function ProjectModal({ visible, editingProject, onClose, onSaved }) {
         });
         onSaved();
       } else {
-        const res = await api.addProject({ project_name: name.trim(), project_code: projectCode.trim() || null });
+        const res = await api.addProject({ project_name: name.trim(), project_code: projectCode.trim().toUpperCase() || null });
         // Show the generated code before closing, so whoever's adding the
         // site can note it down — it doesn't appear anywhere else until
         // they scroll back to find it in the list.

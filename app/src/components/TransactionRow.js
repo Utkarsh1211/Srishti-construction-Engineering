@@ -30,7 +30,7 @@ function formatBalance(n) {
   );
 }
 
-export default function TransactionRow({ txn, onPress, onLongPress }) {
+export default function TransactionRow({ txn, isAccount ,onPress, onLongPress }) {
   const isCredit = txn.type === 'credit';
   const isWithdrawal = txn.type === 'withdrawal';
 
@@ -95,7 +95,15 @@ export default function TransactionRow({ txn, onPress, onLongPress }) {
     <Text style={styles.date}>
       {formatDate(txn.date)}
     </Text>
-
+  {
+    isAccount &&
+    <>
+    <Text style={styles.dot}>•</Text>
+     <Text style = {styles.date}>
+      {txn.project_name.trim().split(/\s+/).slice(0, 3).join(' ')}
+    </Text>
+    </>
+  }
     {!!txn.entered_by && (
       <>
         <Text style={styles.dot}>•</Text>
@@ -104,6 +112,7 @@ export default function TransactionRow({ txn, onPress, onLongPress }) {
         </Text>
       </>
     )}
+
   </View>
 </View>
 
